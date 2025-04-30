@@ -6,7 +6,7 @@ import org.example.gnss.RtcmHeader
 import org.example.tools.AlignedBitReader
 import kotlin.math.pow
 
-class GPSEphemerisParser:IRtcmMessageParser {
+class GPSEphemerisParser():IRtcmMessageParser {
     override fun parse(rawRtcmMessage: RawRtcmMessage): IRtcmMessage {
 
 
@@ -52,36 +52,36 @@ class GPSEphemerisParser:IRtcmMessageParser {
 
         val  Fit_Interval = reader.read_n_Bit(1)
 
-        return GPSEphemerisMessage(
-            header = header,
-            gpsEphemeris = GpsEphemeris(
-                    prn = satelliteID?:0,
-                    toc = toc!!*16,
-                    week = weeknumber?.plus(2024) ?: 0,
-                    sqrtA = sqrt_A!! * 2.0.pow(-19),
-                    e = e!! * 2.0.pow(-33),
-                    i0 = i0!! * 2.0.pow(-31),
-                    omega0 = OMEGA0!! * 2.0.pow(-31),
-                    omega = omega!! * 2.0.pow(-31),
-                    omegaDot = OMEGADOT!! * 2.0.pow(-43),
-                    m0 = M0!! * 2.0.pow(-32),
-                    deltaN = DELTE_n!! * 2.0.pow(-43),
-                    idot = IDOT!! * 2.0.pow(-43),
-                    cuc =  Cuc!! * 2.0.pow(-29),
-                    cic = Cic!! * 2.0.pow(-29),
-                    cis = Cis!! * 2.0.pow(-29),
-                    crc = Crc!! * 2.0.pow(-5),
-                    crs = Crs!! * 2.0.pow(-5),
-                    cus = Cus!! * 2.0.pow(-29),
+        val singleEph = GpsEphemeris(
+            prn = satelliteID?:0,
+            toc = toc!!*16,
+            week = weeknumber?.plus(2024) ?: 0,
+            sqrtA = sqrt_A!! * 2.0.pow(-19),
+            e = e!! * 2.0.pow(-33),
+            i0 = i0!! * 2.0.pow(-31),
+            omega0 = OMEGA0!! * 2.0.pow(-31),
+            omega = omega!! * 2.0.pow(-31),
+            omegaDot = OMEGADOT!! * 2.0.pow(-43),
+            m0 = M0!! * 2.0.pow(-32),
+            deltaN = DELTE_n!! * 2.0.pow(-43),
+            idot = IDOT!! * 2.0.pow(-43),
+            cuc =  Cuc!! * 2.0.pow(-29),
+            cic = Cic!! * 2.0.pow(-29),
+            cis = Cis!! * 2.0.pow(-29),
+            crc = Crc!! * 2.0.pow(-5),
+            crs = Crs!! * 2.0.pow(-5),
+            cus = Cus!! * 2.0.pow(-29),
 
-                    tgd = tgd!! * 2.0.pow(-31),
-                    af0 = af0!! * 2.0.pow(-31),
-                    af1 = af1!! * 2.0.pow(-43),
-                    af2 = af2!! * 2.0.pow(-55),
-                )
+            tgd = tgd!! * 2.0.pow(-31),
+            af0 = af0!! * 2.0.pow(-31),
+            af1 = af1!! * 2.0.pow(-43),
+            af2 = af2!! * 2.0.pow(-55),
         )
 
-
+        return GPSEphemerisMessage(
+            header = header,
+            gpsEphemeris = singleEph,  // 保留单条
+        )
     }
 }
 
@@ -91,5 +91,19 @@ data class GPSEphemerisMessage(
 ):IRtcmMessage {
     override fun toHumanReadable(): String {
         TODO("Not yet implemented")
+    }
+}
+class EphemerisAggregator {
+    private val ephemerisMap = mutableMapOf<Int, GpsEphemeris>() // Key: Satellite PRN
+
+    // 添加单条星历并返回最新完整集合
+    fun addEphemeris(eph: GpsEphemeris): List<GpsEphemeris> {
+        ephemerisMap[eph.prn] = eph // 更新或新增
+        return ephemerisMap.values.toList()
+    }
+
+    // 获取当前所有星历
+    fun getCurrentEphemerides(): List<GpsEphemeris> {
+        return ephemerisMap.values.toList()
     }
 }

@@ -1,14 +1,21 @@
 package gnss
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import org.example.gnss.RawRtcmMessage
 import org.example.gnss.RtcmStreamProcessor
 import org.example.parser.*
+import kotlin.math.abs
 
 class GNSSPositioningSystem {
     var stationcoordinates: Coordinates? = null
+    // 在类中定义统一的作用域
+    private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     // 配置热流缓存（保留最近30秒数据，假设每秒10个数据点）
     private val _rawDataStream = MutableSharedFlow<RawRtcmMessage>(
@@ -37,35 +44,54 @@ class GNSSPositioningSystem {
         // 配置NTRIP客户端参数
         val serverUrl = "ntrip.data.gnss.ga.gov.au"
         val port = 2101
-        val mountPoint = "BCEP00BKG0"
-//        val mountPoint = "NARE00AUS0"
+        val mountPoint1 = "BCEP00BKG0"
+        val mountPoint2 = "NARE00AUS0"
         val username = "zhangxu0072"
         val password = "zhangxv123@A"
 
-        val ntripClient = NTRIPClient(
+        val ntripClient1 = NTRIPClient(
             serverUrl = serverUrl,
             port = port,
-            mountPoint = mountPoint,
+            mountPoint = mountPoint1,
             username = username,
             password = password
         )
-
+        val ntripClient2 = NTRIPClient(
+            serverUrl = serverUrl,
+            port = port,
+            mountPoint = mountPoint2,
+            username = username,
+            password = password
+        )
+        //第一个网络连接
         val (inputStream, closeConnection) = try {
-            ntripClient.connectStream()
+            ntripClient1.connectStream()
+        }catch (e:Exception){
+            println("Failed to connect to NTRIP server: ${e.message}")
+            throw e
+        }
+        //第二个网络连接
+        val (inputStream2, closeConnection2) = try {
+            ntripClient2.connectStream()
         }catch (e:Exception){
             println("Failed to connect to NTRIP server: ${e.message}")
             throw e
         }
 
         val processor = RtcmStreamProcessor(inputStream)
+        val processor2 = RtcmStreamProcessor(inputStream2)
 
         processor.messageFlow
-            .flowOn(Dispatchers.IO)
             .catch { e -> println("Error in RTCM stream: ${e.message}") }
-            .collect { message ->
-                _rawDataStream.emit(message)
-            }
+            .onEach {  message -> _rawDataStream.emit(message) }
+            .launchIn(CoroutineScope(Dispatchers.IO))
+
+        processor2.messageFlow
+            .catch { e -> println("Error in RTCM stream: ${e.message}") }
+            .onEach {  message -> _rawDataStream.emit(message) }
+            .launchIn(CoroutineScope(Dispatchers.IO))
     }
+
     suspend fun createPositionFlow(){
         _rawDataStream.collect { s ->
             when (s.header.messageType) {
@@ -79,8 +105,11 @@ class GNSSPositioningSystem {
                 }
                 1019 -> {
                     try {
-                        val eph = GPSEphemerisParser().parse(s)
-                        _pGpsEphemerisStream.emit(eph as GPSEphemerisMessage)
+                        if (_pGpsEphemerisStream.replayCache.size < 32){
+                            val eph = GPSEphemerisParser().parse(s) as GPSEphemerisMessage
+                            _pGpsEphemerisStream.emit(eph)
+                        }
+
                     } catch (e: Exception) {
                         println("星历解析失败: ${e.message}")
                     }
@@ -90,39 +119,52 @@ class GNSSPositioningSystem {
         }
     }
 
-
-    //定位处理
-//    fun createPositionFlow(): Flow<IRtcmMessage> {
-//        val r = _rawDataStream.transform<RawRtcmMessage,IRtcmMessage> {
-//            s ->
-//            when(s.header.messageType){
-//                1077 -> Msm7Parser().parse(s)
-//                1019 -> GPSEphemerisParser().parse(s)
-//            }
-//        }
-//        return r
-//    }
-//    // 定位处理器
-//    fun createPositionFlow(): Flow<Position> = flow {
-//        // 收集所需时间窗口的数据（如最近5秒）
-//        val windowData = mutableListOf<GNSSData>()
-//
-//        rawDataStream.collect { newData ->
-//            windowData.add(newData)
-//
-//            // 移除过时数据（滑动窗口）
-//            val currentTime = getCurrentTime() // 你的时间获取实现
-//            windowData.removeAll { currentTime - it.timestamp > 5000 }
-//
-//            // 当有足够数据时计算位置
-//            if (windowData.size >= MIN_DATA_POINTS) {
-//                val position = calculatePosition(windowData)
-//                emit(position)
-//            }
-//        }
-//    }
     
-//    private fun calculatePosition(data: List<GNSSData>): Position {
-//        // 你的定位算法实现
-//    }
+    suspend fun calculatePosition(): Flow<PositionResult> {
+        val allGPSEphemeris = pGpsEphemerisStream.take(32).toList().mapNotNull {
+            it.gpsEphemeris
+        }
+
+        //核心的计算过程
+        TODO("这里还需要写点东西，")
+    }
+
+
+    //实现核心的计算逻辑
+    fun calculatePositionImpl(
+        msm7: Msm7Message,
+        ephList: List<GpsEphemeris>
+    ): PositionResult {
+        //筛选可用星历
+        val validSatellites = msm7.satellites.mapNotNull { satellite ->
+            ephList.find { it.prn == satellite.prn }?.let {eph->
+                SatelliteData(
+                    satellite.prn,
+                    satellite.pseudorange[0],
+                    ephemeris = eph
+                )
+            }
+        }
+
+        TODO("这里还需要写点东西，")
+
+    }
+}
+
+data class SatelliteData(
+    val prn: Int,
+    val pseudorange: Double,
+    val ephemeris: GpsEphemeris
+)
+
+//密封类，用于表示几种特定的类型，它的所有子类必须再编译期确定，常用于表示固定的几种可能状态
+sealed class PositionResult {
+    data class Success(
+        val x: Double,
+        val y: Double,
+        val z: Double,
+        val accuracy: Double
+    ) : PositionResult()
+
+    data class Error(val message: String) : PositionResult()
 }

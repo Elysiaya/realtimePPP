@@ -9,8 +9,6 @@ import org.example.parser.Msm7Message
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.time.Duration.Companion.seconds
 
-//TIP 要<b>运行</b>代码，请按 <shortcut actionId="Run"/> 或
-// 点击装订区域中的 <icon src="AllIcons.Actions.Execute"/> 图标。
 fun main() {
     runBlocking {
 
@@ -23,7 +21,7 @@ fun main() {
         val testDuration = 12.5.seconds // 测试持续时间
         // 启动所有协程
         val dataCollectionJob = launch { system.startDataCollection() }
-        val positionFlowJob = launch { system.createPositionFlow().collect({}) }
+        val positionFlowJob = launch { system.createPositionFlow() }
 
         val rawDataCollector = launch {
             system.rawDataStream.collect { message ->
@@ -37,11 +35,10 @@ fun main() {
             }
         }
 
-        launch {
-            system.pGpsEphemerisStream.collect { message ->
-                GPSEphemeris.add(message)
-            }
-        }
+//        launch {
+//            system.calculatePosition()
+//        }
+
 
         println("测试运行中，将持续${testDuration.inWholeSeconds}秒...")
 

@@ -157,6 +157,10 @@ class GNSSPositioningSystem {
         TODO("这里还需要写点东西，")
 
     }
+    //标准SPP算法，计算大致位置
+    fun SPP(GnssData:List<SatelliteData>){
+
+    }
 }
 
 @Serializable

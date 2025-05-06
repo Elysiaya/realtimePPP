@@ -1,11 +1,14 @@
 package org.example
 
 import gnss.GNSSPositioningSystem
+import gnss.SatelliteData
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.Json
 import org.example.gnss.RawRtcmMessage
 import org.example.parser.GPSEphemerisMessage
 import org.example.parser.GpsEphemeris
 import org.example.parser.Msm7Message
+import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import kotlin.time.Duration.Companion.seconds
 
@@ -35,9 +38,14 @@ fun main() {
             }
         }
 
-//        launch {
-//            system.calculatePosition()
-//        }
+        launch {
+            system.calculatePosition().collect {
+                println("<UNK> $it")
+            }
+        }
+
+
+
 
 
         println("测试运行中，将持续${testDuration.inWholeSeconds}秒...")
@@ -68,3 +76,11 @@ fun main() {
         println(system)
     }
 }
+//fun main(){
+//    val a:  List<SatelliteData> = Json.decodeFromString(File("debug_snapshot.json").readText())
+//    a.map {
+//        (prn, pseudorange, ephemeris) ->
+//        println("prn: $prn, pseudorange: $pseudorange")
+//        println("===================================")
+//    }
+//}

@@ -1,6 +1,7 @@
 package org.example.parser
 
 import gnss.IRtcmMessage
+import kotlinx.serialization.Serializable
 import org.example.gnss.RtcmHeader
 import org.example.gnss.RawRtcmMessage
 import org.example.tools.AlignedBitReader
@@ -168,6 +169,7 @@ class Msm7Parser : IRtcmMessageParser {
 }
 
 // ------------------ 数据模型 ------------------
+@Serializable
 data class Msm7Satellite(
     val prn: Int,                      // 卫星PRN号
     val signalTypes: List<SignalType?>,

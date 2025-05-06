@@ -7,10 +7,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import org.example.gnss.RawRtcmMessage
 import org.example.gnss.RtcmStreamProcessor
 import org.example.parser.*
-import kotlin.math.abs
+import kotlinx.serialization.json.Json
+import java.io.File
+
 
 class GNSSPositioningSystem {
     var stationcoordinates: Coordinates? = null
@@ -126,7 +130,10 @@ class GNSSPositioningSystem {
         }
 
         //核心的计算过程
-        TODO("这里还需要写点东西，")
+        return  pMsm7Stream.map {
+            message ->
+            calculatePositionImpl(message, allGPSEphemeris)
+        }
     }
 
 
@@ -140,20 +147,22 @@ class GNSSPositioningSystem {
             ephList.find { it.prn == satellite.prn }?.let {eph->
                 SatelliteData(
                     satellite.prn,
-                    satellite.pseudorange[0],
+                    satellite,
                     ephemeris = eph
                 )
             }
         }
+        File("debug_snapshot.json").writeText(Json.encodeToString(validSatellites))
 
         TODO("这里还需要写点东西，")
 
     }
 }
 
+@Serializable
 data class SatelliteData(
     val prn: Int,
-    val pseudorange: Double,
+    val obs: Msm7Satellite,
     val ephemeris: GpsEphemeris
 )
 

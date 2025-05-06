@@ -1,5 +1,6 @@
 package org.example.parser
 
+import kotlinx.serialization.Serializable
 import kotlin.math.pow
 import kotlin.math.*
 
@@ -7,6 +8,7 @@ import kotlin.math.*
  * GPS 广播星历数据类
  * 参考：IS-GPS-200 标准（GPS接口控制文档）
  */
+@Serializable
 data class GpsEphemeris(
     // ---------- 卫星和参考时间信息 ----------
     val prn: Int,                // 卫星PRN号（1-32）

@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 import kotlin.math.pow
 
 class Msm7Parser : IRtcmMessageParser {
+    val satellites:List<Msm7GPSobs> = mutableListOf<Msm7GPSobs>()
     override fun parse(rawRtcmMessage: RawRtcmMessage): IRtcmMessage {
         val header = rawRtcmMessage.header
         val payload = rawRtcmMessage.payload
@@ -25,34 +26,31 @@ class Msm7Parser : IRtcmMessageParser {
         val tow = ((payload[3].toInt() and 0xFF shl 22) or
                 (payload[4].toInt() and 0xFF shl 14) or
                 (payload[5].toInt() and 0xFF shl 6) or
-                (payload[6].toInt() and 0xFF shr 2))/100
+                (payload[6].toInt() and 0xFF shr 2))/1000
         //多信号标志，判断是否为当前时刻最后一条消息
-        val multipleMessageBit = payload[6].toInt() and 0x02 != 0
-//        val epochTime = parseGpsTime(tow)
+        val multipleMessageBit = (payload[6].toInt() and 0x02) == 0x02
+        println("payload[0] (binary): ${(payload[0].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println("payload[1] (binary): ${(payload[1].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println("payload[2] (binary): ${(payload[2].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println("payload[3] (binary): ${(payload[3].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println("payload[4] (binary): ${(payload[4].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println("payload[5] (binary): ${(payload[5].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println("payload[6] (binary): ${(payload[6].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+        println()
 
         // 解析卫星数据
-        val satellites= parseMsm7Content(payload)
-
-
+        val satellites= parseMsm7Content(payload,tow)
 
         return Msm7Message(
             header = header,
             stationId = stationId,
             tow = tow,
             multipleMessageBit = multipleMessageBit,
-//            epochTime = epochTime,
             satellites = satellites,
         )
     }
 
-    private fun parseGpsTime(time: Int): GpsTime {
-        // 解析GPS周数和秒数（示例）
-        val weekNumber = time / (3600*24*7)
-        val secondsOfWeek = time % (3600*24*7)
-        return GpsTime(weekNumber, secondsOfWeek)
-    }
-
-    private fun parseMsm7Content(payload: ByteArray): List<Msm7Satellite>{
+    private fun parseMsm7Content(payload: ByteArray,tow:Int): List<Msm7GPSobs>{
         // 1. 解析卫星掩码（按位表示存在的卫星）
         val satelliteMask = parseBitMask(payload,9, MAX_SATELLITES)
         val satelliteCount = satelliteMask.count { it }
@@ -72,29 +70,29 @@ class Msm7Parser : IRtcmMessageParser {
         )
 
         // 3. 解析卫星数据
-        val satellites = parseSatellites(reader, satelliteMask,signalMask,gnssCellMask)
+        val satellites = parseSatellites(reader, satelliteMask,signalMask,gnssCellMask,tow)
 
         return satellites
     }
 
 
-    private fun parseSatellites(reader: AlignedBitReader, satelliteMask: List<Boolean>,signalMask:List<Boolean>,gnssCellMask:List<Boolean>): List<Msm7Satellite> {
+    private fun parseSatellites(reader: AlignedBitReader, satelliteMask: List<Boolean>,signalMask:List<Boolean>,gnssCellMask:List<Boolean>,tow:Int): List<Msm7GPSobs> {
         //[21]
 
         // 读取伪距（每个卫星对应一个8位粗略伪距和10位精细伪距）
         val satelliteCount = satelliteMask.count { it }
         val signalTypeCount = signalMask.count { it }
         val ncell = gnssCellMask.count { it }
-        //GNSS 卫星粗略距离整毫秒
-        val ranges1 = reader.read_n_BitRanges(satelliteCount,8) ?: return emptyList()
-        //GNSS 卫星粗略距离毫秒内
-        val ranges2 = reader.read_n_BitRanges(satelliteCount,10) ?: return emptyList()
+
+        //The number of integer milliseconds in GNSS Satellite  rough ranges
+        val ranges1 = reader.read_n_BitUintRanges(satelliteCount,8) ?: return emptyList()
+        val extendedSatelliteInformation = reader.read_n_BitUintRanges(satelliteCount,4)?: return emptyList()
+        //GNSS Satellite rough ranges modulo 1 millisecond
+        val ranges2 = reader.read_n_BitUintRanges(satelliteCount,10) ?: return emptyList()
+        //GNSS Satellite rough PhaseRangeRates
+        val  roughPhaseRangeRates = reader.read_n_BitUintRanges(satelliteCount,14) ?: return emptyList()
 
 
-//        val signalslist = mutableListOf<SignalType?>()
-//        for ((idx,item) in signalMask.withIndex().filter { it.value }) {
-//            signalslist.add(SignalType.fromInt(idx+1))
-//        }
         val signalslist = signalMask.withIndex()
             .filter { it.value }
             .map {it -> SignalType.fromInt(it.index + 1) }
@@ -102,13 +100,14 @@ class Msm7Parser : IRtcmMessageParser {
 
 
 
-        val pseudorange = reader.read_n_BitRanges(ncell,15) ?: return emptyList()
-        val phase = reader.read_n_BitRanges(ncell,22) ?: return emptyList()
-        val GNSSPhaserangeLockTimeIndicator = reader.read_n_BitRanges(ncell,4) ?: return emptyList()
-        val HalfcycleambiguityIndicator = reader.read_n_BitRanges(ncell,1) ?: return emptyList()
-        val CNRs = reader.read_n_BitRanges(ncell,6) ?: return emptyList()
+        val finePseudorange = reader.read_n_BitIntRanges(ncell,20) ?: return emptyList()
+        val phase = reader.read_n_BitUintRanges(ncell,24) ?: return emptyList()
+        val GNSSPhaserangeLockTimeIndicator = reader.read_n_BitUintRanges(ncell,10) ?: return emptyList()
+        val HalfcycleambiguityIndicator = reader.read_n_BitUintRanges(ncell,1) ?: return emptyList()
+        val CNRs = reader.read_n_BitUintRanges(ncell,10) ?: return emptyList()
+        val finePhaseRangeRates = reader.read_n_BitUintRanges(ncell,15) ?: return emptyList()
 
-        val ss = mutableListOf<Msm7Satellite>()
+        val ss = mutableListOf<Msm7GPSobs>()
 
 //        指示第几颗卫星
         var idx = 0
@@ -119,16 +118,17 @@ class Msm7Parser : IRtcmMessageParser {
             val satellitesignalslist = signalslist.filter {
                 gnssCellMask.slice(idx*signalslist.size until (idx+1)*signalslist.size)[signalslist.indexOf(it)]
             }
-            val m = Msm7Satellite(
+            val m = Msm7GPSobs(
                 prn = index+1,
-                nms = ranges1[idx],
-                roughRange = ranges2[idx],
+                nms = ranges1[idx],//单位毫秒
+                roughRange = ranges2[idx],//小数部分
                 signalTypes = satellitesignalslist,
-                finePseudorange = pseudorange.slice(idx2 until idx2+satellitesignalslist.size),
+                finePseudorange = finePseudorange.slice(idx2 until idx2+satellitesignalslist.size),
                 finePhaserange = phase.slice(idx2 until idx2+satellitesignalslist.size),
                 GNSSPhaserangeLockTimeIndicator = GNSSPhaserangeLockTimeIndicator.slice(idx2 until idx2+satellitesignalslist.size),
                 HalfcycleambiguityIndicator = HalfcycleambiguityIndicator.slice(idx2 until idx2+satellitesignalslist.size),
-                CNRs = CNRs.slice(idx2 until idx2+satellitesignalslist.size),
+                CNRs = CNRs.slice(idx2 until idx2+satellitesignalslist.size).map{it * 2.0.pow(-4)},
+                tow = tow
             )
             ss.add(m)
             idx++
@@ -170,7 +170,7 @@ class Msm7Parser : IRtcmMessageParser {
 
 // ------------------ 数据模型 ------------------
 @Serializable
-data class Msm7Satellite(
+data class Msm7GPSobs(
     val prn: Int,                      // 卫星PRN号
     val signalTypes: List<SignalType?>,
     val nms: Int,//粗略伪距整毫秒
@@ -179,9 +179,19 @@ data class Msm7Satellite(
     val finePhaserange: List<Int>, //精细载波相位
     val GNSSPhaserangeLockTimeIndicator: List<Int>,//GNSS 载波相位 锁定时间标志
     val HalfcycleambiguityIndicator: List<Int>,//半周模糊度标志
-    val CNRs: List<Int>,//GNSS 信号载噪比
+    val CNRs: List<Double>,//GNSS 信号载噪比
+    var tow: Int,
 ){
-    private val C = 299792458.0 // 光速 (m/s)
+
+    companion object {
+        const val C = 299792458.0
+        // GPS频率 (Hz)
+        const val F1 = 1575.42  // L1
+        const val F2 = 1227.60  // L2
+        const val F5 = 1176.45  // L5
+        // 频率平方比
+        val GAMMA = (F2 * F2) / (F1 * F1)  // ≈0.646944444
+    }
     val pseudorange:List<Double>
     val phaserange:List<Double>
     init {
@@ -189,24 +199,32 @@ data class Msm7Satellite(
             C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-29))
         }
         phaserange = finePhaserange.map { it ->
-            C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-32))
+            C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-31))
+        }
+    }
+
+    fun getObsfromsignal(signalType: SignalType):Double{
+        require(signalTypes.contains(signalType)){"$signalType does not exist"}
+        val i = signalTypes.indexOf(signalType)
+        return pseudorange[i]
+    }
+    //获取无电离层组合观测值
+    fun IF_combination(): Double{
+
+        fun IF(o1: Double, o2: Double):Double{
+            //目前只计算L1和L2
+            return (F1.pow(2) * o1 - F2.pow(2) * o2)/(F1.pow(2)-F2.pow(2))
+        }
+
+        return when{
+            SignalType.L1C in signalTypes && SignalType.L2L in signalTypes -> IF(getObsfromsignal(SignalType.L1C), getObsfromsignal(SignalType.L2L))
+            SignalType.L1W in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1W), getObsfromsignal(SignalType.L2W))
+            SignalType.L1C in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1C), getObsfromsignal(SignalType.L2L))
+            SignalType.L1C in signalTypes && SignalType.L2C in signalTypes -> IF(getObsfromsignal(SignalType.L1C), getObsfromsignal(SignalType.L2C))
+            else -> pseudorange[0]
         }
     }
 }
-
-data class Msm7Signal(
-    val satelliteIndex: Int,           // 对应卫星索引
-    val signalType: SignalType,        // 信号类型（L1C, L2P等）
-    val finePseudorange: Int,          // 精细伪距（相对于粗略伪距的差值）
-    val finePhaseRange: Int,           // 精细载波相位
-    val lockTime: Int,                 // 锁定时间指示器
-    val carrierToNoiseRatio: Int       // 载噪比（dB-Hz）
-)
-
-data class GpsTime(
-    val weekNumber: Int,               // GPS周数
-    val secondsOfWeek: Int             // 周内秒数
-)
 
 enum class SignalType(val code: Int) {
     // 根据RTCM标准扩展(DF395)
@@ -226,8 +244,8 @@ data class Msm7Message(
     override val header: RtcmHeader,
     val stationId: Int,
     val tow: Int,
-    val multipleMessageBit: Boolean,
-    val satellites: List<Msm7Satellite>,
+    val multipleMessageBit: Boolean,//多信号标志，当其为true时表示后面还有信息
+    val satellites: List<Msm7GPSobs>,
 ) : IRtcmMessage {
     override fun toHumanReadable() = """
         MSM7 Message (Type=${header.messageType}):
@@ -236,6 +254,3 @@ data class Msm7Message(
         ${satellites.take(3).joinToString("\n") { " - PRN ${it.prn}" }}
 
     """.trimIndent()}
-//Epoch Time: Week ${epochTime.weekNumber}, Seconds ${epochTime.secondsOfWeek}
-//Signals: ${signals.size}
-//${signals.take(3).joinToString("\n") { " - ${it.signalType}: CNR=${it.carrierToNoiseRatio} dB-Hz" }}

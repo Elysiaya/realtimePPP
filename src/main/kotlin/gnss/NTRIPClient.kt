@@ -6,11 +6,8 @@ import java.net.URL
 import java.util.Base64
 
 class NTRIPClient(
-    private val serverUrl: String,
-    private val port: Int = 2101,
-    private val mountPoint: String,
-    private val username: String? = null,
-    private val password: String? = null
+    val userInfo: UserInfo,
+    val mountPoint: String,
 ) {
     private var connection: HttpURLConnection? = null
     private var isRunning = false
@@ -21,6 +18,13 @@ class NTRIPClient(
      * @throws Exception 如果连接失败
      */
     fun connectStream(): Pair<InputStream, () -> Unit> {
+
+        val serverUrl = userInfo.serverUrl
+        val port = userInfo.port
+        val username = userInfo.username
+        val password = userInfo.password
+
+
         val url = URL("http://$serverUrl:$port/$mountPoint")
         connection = url.openConnection() as HttpURLConnection
         connection?.apply {
@@ -29,11 +33,9 @@ class NTRIPClient(
             setRequestProperty("User-Agent", "NTRIP KotlinClient/1.0")
 
             // 基本认证
-            if (username != null && password != null) {
-                val auth = "$username:$password"
-                val encodedAuth = Base64.getEncoder().encodeToString(auth.toByteArray())
-                setRequestProperty("Authorization", "Basic $encodedAuth")
-            }
+            val auth = "$username:$password"
+            val encodedAuth = Base64.getEncoder().encodeToString(auth.toByteArray())
+            setRequestProperty("Authorization", "Basic $encodedAuth")
 
             connectTimeout = 5000
             readTimeout = 0 // 无限读取超时
@@ -69,3 +71,10 @@ class NTRIPClient(
      */
     fun isConnected(): Boolean = isRunning
 }
+
+data class UserInfo(
+    var serverUrl: String,
+    var port: Int,
+    var username: String,
+    var password: String
+)

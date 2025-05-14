@@ -35,7 +35,7 @@ class GPSEphemerisParser():IRtcmMessageParser {
         val e = reader.read_n_Bit(32)
         val Cus = reader.readSignedBits(16)
 
-        val sqrt_A = reader.read_n_Bit(32)
+        val sqrt_A = reader.read_n_Bit(32)?.toLong()?.and(0xFFFFFFFFL)
         val toe = reader.read_n_Bit(16)
         val Cic = reader.readSignedBits(16)
         val OMEGA0 = reader.readSignedBits(32)
@@ -52,19 +52,20 @@ class GPSEphemerisParser():IRtcmMessageParser {
 
         val  Fit_Interval = reader.read_n_Bit(1)
 
+
         val singleEph = GpsEphemeris(
             prn = satelliteID?:0,
             toc = toc!!*16,
-            week = weeknumber?.plus(2024) ?: 0,
+            week = weeknumber?.plus(2048) ?: 0,
             sqrtA = sqrt_A!! * 2.0.pow(-19),
             e = e!! * 2.0.pow(-33),
-            i0 = i0!! * 2.0.pow(-31),
-            omega0 = OMEGA0!! * 2.0.pow(-31),
-            omega = omega!! * 2.0.pow(-31),
-            omegaDot = OMEGADOT!! * 2.0.pow(-43),
-            m0 = M0!! * 2.0.pow(-32),
-            deltaN = DELTE_n!! * 2.0.pow(-43),
-            idot = IDOT!! * 2.0.pow(-43),
+            i0 = i0!! * 2.0.pow(-31) * Math.PI,
+            omega0 = OMEGA0!! * 2.0.pow(-31)* Math.PI,
+            omega = omega!! * 2.0.pow(-31)* Math.PI,
+            omegaDot = OMEGADOT!!.times(Math.scalb(Math.PI,-43)),
+            m0 = M0!! * 2.0.pow(-31)* Math.PI,
+            deltaN = DELTE_n!! * 2.0.pow(-43) * Math.PI,
+            idot = IDOT!! * 2.0.pow(-43) * Math.PI,
             cuc =  Cuc!! * 2.0.pow(-29),
             cic = Cic!! * 2.0.pow(-29),
             cis = Cis!! * 2.0.pow(-29),
@@ -87,23 +88,13 @@ class GPSEphemerisParser():IRtcmMessageParser {
 
 data class GPSEphemerisMessage(
     override val header: RtcmHeader,
-    val gpsEphemeris:GpsEphemeris?,
+    val gpsEphemeris:GpsEphemeris,
 ):IRtcmMessage {
     override fun toHumanReadable(): String {
-        TODO("Not yet implemented")
-    }
-}
-class EphemerisAggregator {
-    private val ephemerisMap = mutableMapOf<Int, GpsEphemeris>() // Key: Satellite PRN
+        return """
+            gpsEphemeris.prn: ${gpsEphemeris.prn}
+            gpsEphemeris.toe: ${gpsEphemeris.toc}
+        """.trimIndent()
 
-    // 添加单条星历并返回最新完整集合
-    fun addEphemeris(eph: GpsEphemeris): List<GpsEphemeris> {
-        ephemerisMap[eph.prn] = eph // 更新或新增
-        return ephemerisMap.values.toList()
-    }
-
-    // 获取当前所有星历
-    fun getCurrentEphemerides(): List<GpsEphemeris> {
-        return ephemerisMap.values.toList()
     }
 }

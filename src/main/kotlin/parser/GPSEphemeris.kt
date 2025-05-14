@@ -25,7 +25,7 @@ data class GpsEphemeris(
 
     // ---------- 摄动校正参数 ----------
     val deltaN: Double,          // 平均角速度校正值 (rad/s)
-    val idot: Double,            // 轨道倾角变化率 (rad/s)
+    var idot: Double,            // 轨道倾角变化率 (rad/s)
     val omegaDot: Double,        // 升交点赤经变化率 (rad/s)
 
     // ---------- 谐波摄动校正 ----------
@@ -49,9 +49,23 @@ data class GpsEphemeris(
     }
 
     // ---------- 计算卫星位置的方法 ----------
-    fun calculateSatellitePosition(time: Double): Triple<Double, Double, Double> {
-        // 1. 计算相对于参考时间的时间差
-        val tk = time - toc
+    var satelliteClockBias = 0.0
+    fun calculateSatellitePosition(receiverTime: Double, initialPseudorange: Double,receiverClockBias: Double = 0.0): List<Double> {
+        val C = 299792458.0
+        //1.计算近似信号发射时间，忽略钟差
+        var transmitTime = receiverTime - initialPseudorange / C - receiverClockBias
+
+        //计算卫星钟差,迭代计算
+        repeat(3){
+            val tk = transmitTime - toc
+            satelliteClockBias = calculateClockOffset(tk)
+            // 第三步：修正发射时间
+            transmitTime = receiverTime - initialPseudorange / C - satelliteClockBias
+        }
+
+
+        // 2. 计算相对于星历参考时间的时间差
+        val tk = transmitTime - toc
 
         // 2. 计算校正后的平均角速度
         val n0 = sqrt(MU / sqrtA.pow(6))
@@ -97,12 +111,23 @@ data class GpsEphemeris(
         val y = xkPrime * sin(omegak) + ykPrime * cos(ik) * cos(omegak)
         val z = ykPrime * sin(ik)
 
-        return Triple(x, y, z)
+        //进行地球自转改正，计算信号传播期间的地球自转角度
+        val signalTravelTime = initialPseudorange / C + satelliteClockBias
+        val deltaTheta = OMEGA_E * signalTravelTime
+
+        val xRotated = x * cos(deltaTheta) + y * sin(deltaTheta)
+        val yRotated = -x * sin(deltaTheta) + y * cos(deltaTheta)
+
+        return listOf(xRotated,yRotated,z)
     }
 
     // ---------- 计算卫星时钟偏差 ----------
     fun calculateClockOffset(time: Double): Double {
-        val dt = time - toc
-        return af0 + af1 * dt + af2 * dt.pow(2) + tgd
+        return af0 + af1 * time + af2 * time.pow(2) + tgd
     }
+}
+
+private fun Double.radToDeg(): Double {
+    val degrees = this * 180 / Math.PI
+    return degrees
 }

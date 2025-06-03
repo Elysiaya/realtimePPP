@@ -1,6 +1,7 @@
 package org.example.gnss
 
 import kotlinx.serialization.Serializable
+import org.example.gnss.GnssConstants.C
 import org.example.parser.GpsEphemeris
 import org.example.parser.Msm7GPSobs
 import org.jetbrains.kotlinx.multik.api.identity
@@ -19,10 +20,6 @@ import kotlin.math.sqrt
 
 class SPP() {
 
-    companion object {
-        const val C = 299792458
-    }
-
     //标准SPP算法，计算大致位置
     public fun SPP(gnssdata: List<SatelliteData>): PositionResult {
         //真值，测试用
@@ -33,7 +30,8 @@ class SPP() {
         val Z = -.254510429759719E+07
 
 
-        val X0 = mutableListOf(X, Y, Z, 0.0)
+//        val X0 = mutableListOf(X, Y, Z, 0.0)
+        val X0 = mutableListOf(1.0, 1.0, 1.0, 0.0)
 
         for (i in 0..20) {
 
@@ -43,9 +41,6 @@ class SPP() {
 
             val A = mk.ndarray(r.first.toTypedArray())
             val L = mk.ndarray(r.second.toDoubleArray())
-            if (i==5){
-                println("L = $L")
-            }
 
             val P = mk.identity<Double>(A.shape[0])
 
@@ -99,7 +94,6 @@ class SPP() {
         val A = mutableListOf<DoubleArray>()
         val L = mutableListOf<Double>()
 
-        println(iter)
         for (data in gnssdata) {
             val observations_time = data.obs.tow.toDouble() - X0[3] / C
             val o = data.obs.IF_combination()
@@ -108,8 +102,10 @@ class SPP() {
                 data.ephemeris.calculateSatellitePosition(observations_time, o, X0[3])
 
 
+            //计算卫星高度角
+            var elevation = 15.0
             if (iter>3){
-                val elevation = calculateElevation(X0.take(3), satellite_position) // 需实现高度角计算
+                elevation = calculateElevation(X0.take(3), satellite_position) // 需实现高度角计算
                 if (elevation < cutoff_angle || data.obs.CNRs.first()<36) continue
             }
 
@@ -124,7 +120,7 @@ class SPP() {
 
             val diono = 0  // 电离层延迟改正量，采用无电离层伪距观测组合值时此项为0
             val D_RTCM = 0  // 对伪距的差分改证
-            val D_troposphere = 0//对流层
+            val D_troposphere = saastamoinenTropoDelay(elevation)
             val dts = data.ephemeris.satelliteClockBias
             val dtprel = 0//相对论效应改正
 
@@ -161,7 +157,6 @@ class SPP() {
         val e = -sinLon * dx + cosLon * dy  // 东分量
         val n = -sinLat * cosLon * dx - sinLat * sinLon * dy + cosLat * dz  // 北分量
         val u = cosLat * cosLon * dx + cosLat * sinLon * dy + sinLat * dz  // 天顶分量
-        println("ENU${listOf(e,n,u)}")
 
         // 5. 计算高度角（atan2 更稳定）
         val elevationRad = atan2(u, sqrt(e * e + n * n))

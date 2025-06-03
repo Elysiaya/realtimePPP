@@ -2,6 +2,7 @@ package org.example.parser
 
 import gnss.IRtcmMessage
 import kotlinx.serialization.Serializable
+import org.example.gnss.GnssConstants.C
 import org.example.gnss.RtcmHeader
 import org.example.gnss.RawRtcmMessage
 import org.example.tools.AlignedBitReader
@@ -29,14 +30,14 @@ class Msm7Parser : IRtcmMessageParser {
                 (payload[6].toInt() and 0xFF shr 2))/1000
         //多信号标志，判断是否为当前时刻最后一条消息
         val multipleMessageBit = (payload[6].toInt() and 0x02) == 0x02
-        println("payload[0] (binary): ${(payload[0].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println("payload[1] (binary): ${(payload[1].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println("payload[2] (binary): ${(payload[2].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println("payload[3] (binary): ${(payload[3].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println("payload[4] (binary): ${(payload[4].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println("payload[5] (binary): ${(payload[5].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println("payload[6] (binary): ${(payload[6].toInt() and 0xFF).toString(2).padStart(8, '0')}")
-        println()
+//        println("payload[0] (binary): ${(payload[0].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println("payload[1] (binary): ${(payload[1].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println("payload[2] (binary): ${(payload[2].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println("payload[3] (binary): ${(payload[3].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println("payload[4] (binary): ${(payload[4].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println("payload[5] (binary): ${(payload[5].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println("payload[6] (binary): ${(payload[6].toInt() and 0xFF).toString(2).padStart(8, '0')}")
+//        println()
 
         // 解析卫星数据
         val satellites= parseMsm7Content(payload,tow)
@@ -101,8 +102,9 @@ class Msm7Parser : IRtcmMessageParser {
 
 
         val finePseudorange = reader.read_n_BitIntRanges(ncell,20) ?: return emptyList()
-        val phase = reader.read_n_BitUintRanges(ncell,24) ?: return emptyList()
+        val phase = reader.read_n_BitIntRanges(ncell,24) ?: return emptyList()
         val GNSSPhaserangeLockTimeIndicator = reader.read_n_BitUintRanges(ncell,10) ?: return emptyList()
+        //HalfcycleambiguityIndicator暂时有些问题
         val HalfcycleambiguityIndicator = reader.read_n_BitUintRanges(ncell,1) ?: return emptyList()
         val CNRs = reader.read_n_BitUintRanges(ncell,10) ?: return emptyList()
         val finePhaseRangeRates = reader.read_n_BitUintRanges(ncell,15) ?: return emptyList()
@@ -184,16 +186,14 @@ data class Msm7GPSobs(
 ){
 
     companion object {
-        const val C = 299792458.0
         // GPS频率 (Hz)
         const val F1 = 1575.42  // L1
         const val F2 = 1227.60  // L2
         const val F5 = 1176.45  // L5
-        // 频率平方比
-        val GAMMA = (F2 * F2) / (F1 * F1)  // ≈0.646944444
     }
     val pseudorange:List<Double>
     val phaserange:List<Double>
+    val wavelengthIF:Double
     init {
         pseudorange = finePseudorange.map { it->
             C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-29))
@@ -201,28 +201,59 @@ data class Msm7GPSobs(
         phaserange = finePhaserange.map { it ->
             C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-31))
         }
+        wavelengthIF = calculateIfWavelength(F1,F2)
     }
 
-    fun getObsfromsignal(signalType: SignalType):Double{
+    fun getObsfromsignal(signalType: SignalType): Pair<Double, Double> {
         require(signalTypes.contains(signalType)){"$signalType does not exist"}
         val i = signalTypes.indexOf(signalType)
-        return pseudorange[i]
+//        return pseudorange[i]
+        return Pair(pseudorange[i],phaserange[i])
+    }
+
+    /**
+     * 无电离层组合（Ionosphere-Free, IF）
+     *
+     * @param o1 L1观测值
+     * @param o2 L2观测值
+     * @return
+     */
+    fun IF(o1: Double, o2: Double):Double{
+        //目前只计算L1和L2
+        return (F1.pow(2) * o1 - F2.pow(2) * o2)/(F1.pow(2)-F2.pow(2))
     }
     //获取无电离层组合观测值
     fun IF_combination(): Double{
-
-        fun IF(o1: Double, o2: Double):Double{
-            //目前只计算L1和L2
-            return (F1.pow(2) * o1 - F2.pow(2) * o2)/(F1.pow(2)-F2.pow(2))
-        }
-
         return when{
-            SignalType.L1C in signalTypes && SignalType.L2L in signalTypes -> IF(getObsfromsignal(SignalType.L1C), getObsfromsignal(SignalType.L2L))
-            SignalType.L1W in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1W), getObsfromsignal(SignalType.L2W))
-            SignalType.L1C in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1C), getObsfromsignal(SignalType.L2L))
-            SignalType.L1C in signalTypes && SignalType.L2C in signalTypes -> IF(getObsfromsignal(SignalType.L1C), getObsfromsignal(SignalType.L2C))
+            SignalType.L1C in signalTypes && SignalType.L2L in signalTypes -> IF(getObsfromsignal(SignalType.L1C).first, getObsfromsignal(SignalType.L2L).first)
+            SignalType.L1W in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1W).first, getObsfromsignal(SignalType.L2W).first)
+            SignalType.L1C in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1C).first, getObsfromsignal(SignalType.L2L).first)
+            SignalType.L1C in signalTypes && SignalType.L2C in signalTypes -> IF(getObsfromsignal(SignalType.L1C).first, getObsfromsignal(SignalType.L2C).first)
             else -> pseudorange[0]
         }
+    }
+    //获取无电离层组合观测值,载波相位
+    fun IF_combination2(): Double{
+        return when{
+            SignalType.L1C in signalTypes && SignalType.L2L in signalTypes -> IF(getObsfromsignal(SignalType.L1C).second, getObsfromsignal(SignalType.L2L).second)
+            SignalType.L1W in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1W).second, getObsfromsignal(SignalType.L2W).second)
+            SignalType.L1C in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1C).second, getObsfromsignal(SignalType.L2L).second)
+            SignalType.L1C in signalTypes && SignalType.L2C in signalTypes -> IF(getObsfromsignal(SignalType.L1C).second, getObsfromsignal(SignalType.L2C).second)
+            else -> phaserange[0]
+        }
+    }
+    /**
+     * 计算无电离层组合（IF组合）的波长
+     * @param f1 第一个频率（Hz）
+     * @param f2 第二个频率（Hz）
+     * @return IF组合波长（米）
+     */
+    fun calculateIfWavelength(f1: Double, f2: Double): Double {
+        require(f1 > 0 && f2 > 0) { "频率必须为正数" }
+        val alpha = (f1 * f1) / (f1 * f1 - f2 * f2)
+        val beta = (f2 * f2) / (f1 * f1 - f2 * f2)
+        val fIf = alpha * f1 - beta * f2
+        return C / fIf
     }
 }
 

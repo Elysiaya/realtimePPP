@@ -10,7 +10,7 @@ fun main() {
     runBlocking {
 
         val system = GNSSPositioningSystem()
-        val testDuration = 12.5.seconds // 测试持续时间
+        val testDuration = 300.seconds // 测试持续时间
         // 启动所有协程
         system.startDataCollection()
         val positionFlowJob = launch { system.createPositionFlow() }

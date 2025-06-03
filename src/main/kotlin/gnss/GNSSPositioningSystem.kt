@@ -33,13 +33,15 @@ class GNSSPositioningSystem {
 
     private val _pMsm7Stream = MutableSharedFlow<Msm7Message>(
         replay = 300, // 缓存容量
-        extraBufferCapacity = 50 // 额外缓冲区
+        extraBufferCapacity = 50, // 额外缓冲区
+        onBufferOverflow = BufferOverflow.DROP_OLDEST //当缓冲区满的时候丢弃旧数据
     )
     val pMsm7Stream: SharedFlow<Msm7Message> = _pMsm7Stream
 
     private val _pGpsEphemerisStream = MutableSharedFlow<GPSEphemerisMessage>(
         replay = 300, // 缓存容量
-        extraBufferCapacity = 50 // 额外缓冲区
+        extraBufferCapacity = 50, // 额外缓冲区
+        onBufferOverflow = BufferOverflow.DROP_OLDEST //当缓冲区满的时候丢弃旧数据
     )
     val pGpsEphemerisStream: SharedFlow<GPSEphemerisMessage> = _pGpsEphemerisStream
 
@@ -85,12 +87,12 @@ class GNSSPositioningSystem {
         processor.messageFlow
             .catch { e -> println("Error in RTCM stream: ${e.message}") }
             .onEach { message -> _rawDataStream.emit(message) }
-            .launchIn(CoroutineScope(Dispatchers.IO))
+            .launchIn(scope)
 
         processor2.messageFlow
             .catch { e -> println("Error in RTCM stream: ${e.message}") }
             .onEach { message -> _rawDataStream.emit(message) }
-            .launchIn(CoroutineScope(Dispatchers.IO))
+            .launchIn(scope)
     }
 
     suspend fun createPositionFlow() {
@@ -160,6 +162,7 @@ class GNSSPositioningSystem {
         }
     }
 
+    val saveSatelliteData = mutableListOf<SatelliteData>()
     //实现核心的计算逻辑
     private fun calculatePositionImpl(
         msm7: Msm7Message,
@@ -175,12 +178,12 @@ class GNSSPositioningSystem {
                 )
             }
         }
-//        File("debug_snapshot.json").writeText(Json.encodeToString(validSatellites))
+        saveSatelliteData.addAll(validSatellites)
+//        File("debug_snapshotlist.json").writeText(Json.encodeToString(saveSatelliteData))
         //过滤明显异常的值
 //        validSatellites = validSatellites.filter { satellite ->
 //            satellite.obs.signalTypes.size > 1 && satellite.obs.pseudorange.all { it > 10000 }
 //        }
         return SPP().SPP(validSatellites)
-
     }
 }

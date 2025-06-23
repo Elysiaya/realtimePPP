@@ -50,10 +50,10 @@ data class GpsEphemeris(
 
     // ---------- 计算卫星位置的方法 ----------
     var satelliteClockBias = 0.0
-    fun calculateSatellitePosition(receiverTime: Double, initialPseudorange: Double,receiverClockBias: Double = 0.0): List<Double> {
+    fun calculateSatellitePosition(receiverTime: Double, initialPseudorange: Double): List<Double> {
         val C = 299792458.0
         //1.计算近似信号发射时间，忽略钟差
-        var transmitTime = receiverTime - initialPseudorange / C - receiverClockBias
+        var transmitTime = receiverTime - initialPseudorange / C
 
         //计算卫星钟差,迭代计算
         repeat(3){

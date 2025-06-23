@@ -6,6 +6,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.Json
+import org.example.database.batchInsertSatelliteData
+import org.example.database.insertSatelliteData
 import org.example.gnss.PositionResult
 import org.example.gnss.RawRtcmMessage
 import org.example.gnss.RtcmStreamProcessor
@@ -162,7 +164,6 @@ class GNSSPositioningSystem {
         }
     }
 
-    val saveSatelliteData = mutableListOf<SatelliteData>()
     //实现核心的计算逻辑
     private fun calculatePositionImpl(
         msm7: Msm7Message,
@@ -173,13 +174,13 @@ class GNSSPositioningSystem {
             ephList.find { it.prn == satellite.prn }?.let { eph ->
                 SatelliteData(
                     satellite.prn,
-                    satellite,
+                    satellite.toSignalObservationData(),
                     ephemeris = eph
                 )
             }
         }
-        saveSatelliteData.addAll(validSatellites)
-//        File("debug_snapshotlist.json").writeText(Json.encodeToString(saveSatelliteData))
+//        batchInsertSatelliteData(validSatellites)
+//        File("debug_snapshot.json").writeText(Json.encodeToString(saveSatelliteData[0]))
         //过滤明显异常的值
 //        validSatellites = validSatellites.filter { satellite ->
 //            satellite.obs.signalTypes.size > 1 && satellite.obs.pseudorange.all { it > 10000 }

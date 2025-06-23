@@ -1,6 +1,7 @@
 package org.example.gnss
 
 import kotlinx.serialization.Serializable
+import org.example.database.SignalObservationData
 import org.example.gnss.GnssConstants.C
 import org.example.parser.GpsEphemeris
 import org.example.parser.Msm7GPSobs
@@ -12,7 +13,6 @@ import org.jetbrains.kotlinx.multik.api.ndarray
 import org.jetbrains.kotlinx.multik.ndarray.data.get
 import kotlin.math.PI
 import kotlin.math.abs
-import kotlin.math.asin
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -78,7 +78,8 @@ class SPP() {
             x = X0[0],
             y = X0[1],
             z = X0[2],
-            accuracy = 0.0
+            accuracy = 0.0,
+            clockBias = X0[3]
         )
 
 
@@ -99,14 +100,14 @@ class SPP() {
             val o = data.obs.IF_combination()
 
             var satellite_position: List<Double> =
-                data.ephemeris.calculateSatellitePosition(observations_time, o, X0[3])
+                data.ephemeris.calculateSatellitePosition(observations_time, o)
 
 
             //计算卫星高度角
             var elevation = 15.0
             if (iter>3){
                 elevation = calculateElevation(X0.take(3), satellite_position) // 需实现高度角计算
-                if (elevation < cutoff_angle || data.obs.CNRs.first()<36) continue
+                if (elevation < cutoff_angle || data.obs.cnrs.first()<36) continue
             }
 
             //计算卫星和测站的几何距离
@@ -198,10 +199,9 @@ class SPP() {
 
 
 
-@Serializable
 data class SatelliteData(
     val prn: Int,
-    val obs: Msm7GPSobs,
+    val obs: SignalObservationData,
     val ephemeris: GpsEphemeris
 )
 
@@ -212,7 +212,8 @@ sealed class PositionResult {
         val x: Double,
         val y: Double,
         val z: Double,
-        val accuracy: Double
+        val accuracy: Double,
+        val clockBias: Double //单位，米
     ) : PositionResult()
 
     data class Error(val message: String) : PositionResult()

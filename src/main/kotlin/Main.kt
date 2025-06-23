@@ -2,15 +2,17 @@ package org.example
 
 import gnss.GNSSPositioningSystem
 import kotlinx.coroutines.*
+import org.example.database.initDatabase
 import org.example.gnss.PositionResult
 import kotlin.time.Duration.Companion.seconds
 
 
 fun main() {
     runBlocking {
+        initDatabase()
 
         val system = GNSSPositioningSystem()
-        val testDuration = 300.seconds // 测试持续时间
+        val testDuration = 600.seconds // 测试持续时间
         // 启动所有协程
         system.startDataCollection()
         val positionFlowJob = launch { system.createPositionFlow() }

@@ -1,8 +1,6 @@
 package org.example.parser
 
 import gnss.IRtcmMessage
-import kotlinx.serialization.Serializable
-import org.example.gnss.GnssConstants.C
 import org.example.gnss.RtcmHeader
 import org.example.gnss.RawRtcmMessage
 import org.example.tools.AlignedBitReader
@@ -167,93 +165,6 @@ class Msm7Parser : IRtcmMessageParser {
     companion object {
         private const val MAX_SATELLITES = 64
         private const val MAX_SIGNALS = 32
-    }
-}
-
-// ------------------ 数据模型 ------------------
-@Serializable
-data class Msm7GPSobs(
-    val prn: Int,                      // 卫星PRN号
-    val signalTypes: List<SignalType?>,
-    val nms: Int,//粗略伪距整毫秒
-    val roughRange: Int,//粗略伪距，毫秒内，该数除以1024为毫秒数字
-    val finePseudorange: List<Int>,       //精细伪距，该数除以2e-29
-    val finePhaserange: List<Int>, //精细载波相位
-    val GNSSPhaserangeLockTimeIndicator: List<Int>,//GNSS 载波相位 锁定时间标志
-    val HalfcycleambiguityIndicator: List<Int>,//半周模糊度标志
-    val CNRs: List<Double>,//GNSS 信号载噪比
-    var tow: Int,
-){
-
-    companion object {
-        // GPS频率 (Hz)
-        const val F1 = 1575.42  // L1
-        const val F2 = 1227.60  // L2
-        const val F5 = 1176.45  // L5
-    }
-    val pseudorange:List<Double>
-    val phaserange:List<Double>
-    val wavelengthIF:Double
-    init {
-        pseudorange = finePseudorange.map { it->
-            C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-29))
-        }
-        phaserange = finePhaserange.map { it ->
-            C/1000 * (nms + roughRange/1024.0 + it * 2.0.pow(-31))
-        }
-        wavelengthIF = calculateIfWavelength(F1,F2)
-    }
-
-    fun getObsfromsignal(signalType: SignalType): Pair<Double, Double> {
-        require(signalTypes.contains(signalType)){"$signalType does not exist"}
-        val i = signalTypes.indexOf(signalType)
-//        return pseudorange[i]
-        return Pair(pseudorange[i],phaserange[i])
-    }
-
-    /**
-     * 无电离层组合（Ionosphere-Free, IF）
-     *
-     * @param o1 L1观测值
-     * @param o2 L2观测值
-     * @return
-     */
-    fun IF(o1: Double, o2: Double):Double{
-        //目前只计算L1和L2
-        return (F1.pow(2) * o1 - F2.pow(2) * o2)/(F1.pow(2)-F2.pow(2))
-    }
-    //获取无电离层组合观测值
-    fun IF_combination(): Double{
-        return when{
-            SignalType.L1C in signalTypes && SignalType.L2L in signalTypes -> IF(getObsfromsignal(SignalType.L1C).first, getObsfromsignal(SignalType.L2L).first)
-            SignalType.L1W in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1W).first, getObsfromsignal(SignalType.L2W).first)
-            SignalType.L1C in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1C).first, getObsfromsignal(SignalType.L2L).first)
-            SignalType.L1C in signalTypes && SignalType.L2C in signalTypes -> IF(getObsfromsignal(SignalType.L1C).first, getObsfromsignal(SignalType.L2C).first)
-            else -> pseudorange[0]
-        }
-    }
-    //获取无电离层组合观测值,载波相位
-    fun IF_combination2(): Double{
-        return when{
-            SignalType.L1C in signalTypes && SignalType.L2L in signalTypes -> IF(getObsfromsignal(SignalType.L1C).second, getObsfromsignal(SignalType.L2L).second)
-            SignalType.L1W in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1W).second, getObsfromsignal(SignalType.L2W).second)
-            SignalType.L1C in signalTypes && SignalType.L2W in signalTypes -> IF(getObsfromsignal(SignalType.L1C).second, getObsfromsignal(SignalType.L2L).second)
-            SignalType.L1C in signalTypes && SignalType.L2C in signalTypes -> IF(getObsfromsignal(SignalType.L1C).second, getObsfromsignal(SignalType.L2C).second)
-            else -> phaserange[0]
-        }
-    }
-    /**
-     * 计算无电离层组合（IF组合）的波长
-     * @param f1 第一个频率（Hz）
-     * @param f2 第二个频率（Hz）
-     * @return IF组合波长（米）
-     */
-    fun calculateIfWavelength(f1: Double, f2: Double): Double {
-        require(f1 > 0 && f2 > 0) { "频率必须为正数" }
-        val alpha = (f1 * f1) / (f1 * f1 - f2 * f2)
-        val beta = (f2 * f2) / (f1 * f1 - f2 * f2)
-        val fIf = alpha * f1 - beta * f2
-        return C / fIf
     }
 }
 
